@@ -246,6 +246,8 @@ const EventDetails: React.FC = () => {
 
     const startDate = parseISO(event.start_date);
     const isMatch = event.type === 'match';
+    const isPlayerRole = ['PLAYER', 'MEMBER'].includes(user?.role || '');
+    const canAnswerPresence = isMatch && isPlayerRole;
 
     const participantsByStatus = {
         present: event.participants.filter(p => p.status === 'present'),
@@ -339,6 +341,7 @@ const EventDetails: React.FC = () => {
                 {activeTab === 'overview' && (
                     <div className="space-y-6 -mt-6">
                         {/* Participation Toggle */}
+                        {canAnswerPresence && (
                         <Card className="shadow-xl border-none">
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="font-bold text-slate-800">Votre réponse</h3>
@@ -385,6 +388,7 @@ const EventDetails: React.FC = () => {
                         </button>
                     </div>
                 </Card>
+                        )}
 
                 {/* Team Presence Stats */}
                 <div className="grid grid-cols-3 gap-4">

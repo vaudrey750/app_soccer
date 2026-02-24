@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { eventService, EventDTO, EventDetailDTO, ParticipantDTO } from '../../services/eventService';
 import { memberService } from '../../services/memberService';
 import { Card } from '../../components/atoms/Card';
@@ -11,6 +11,7 @@ import { useTeam } from '../../context/TeamContext';
 
 const CoachConvocations: React.FC = () => {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { selectedTeam, teams } = useTeam();
     const [matches, setMatches] = useState<EventDTO[]>([]);
     const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -18,6 +19,11 @@ const CoachConvocations: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
     const eventsPerPage = 4;
+
+    useEffect(() => {
+        const eventId = searchParams.get('eventId');
+        if (eventId) setSelectedEventId(eventId);
+    }, [searchParams]);
 
     // Initial Load: List of Matches
     useEffect(() => {

@@ -16,6 +16,34 @@ export interface LoginResponse {
   tenant_id: string;
 }
 
+export type TenantSignupRequest = {
+    full_name: string;
+    email: string;
+    password: string;
+    club_name: string;
+    is_fff_linked: boolean;
+    fff_real_club_id?: string;
+};
+
+export type SignupResponse = {
+    tenant_id: string;
+    user_id: string;
+    message: string;
+};
+
+export type ForgotPasswordResponse = {
+  message: string;
+};
+
+export type ResetPasswordRequest = {
+  token: string;
+  new_password: string;
+};
+
+export type ResetPasswordResponse = {
+  message: string;
+};
+
 export const authService = {
   login: async (email: string, password: string): Promise<LoginResponse> => {
     // The backend endpoint is likely /saas/login based on legacy code
@@ -49,6 +77,21 @@ export const authService = {
         user,
         tenant_id: data.tenant?.id
     };
+  },
+
+  signup: async (payload: TenantSignupRequest): Promise<SignupResponse> => {
+    const response = await api.post('/saas/signup', payload);
+    return response.data;
+  },
+
+  forgotPassword: async (email: string): Promise<ForgotPasswordResponse> => {
+    const response = await api.post('/saas/forgot-password', { email });
+    return response.data;
+  },
+
+  resetPassword: async (payload: ResetPasswordRequest): Promise<ResetPasswordResponse> => {
+    const response = await api.post('/saas/reset-password', payload);
+    return response.data;
   },
 
   logout: () => {
