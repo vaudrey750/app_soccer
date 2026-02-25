@@ -3,9 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import timedelta
-import os
 import uuid
-import unicodedata
 import logging
 
 from src.infrastructure.database.session import get_session
@@ -48,9 +46,6 @@ async def login_for_access_token(
     stmt_member = select(Member).where(Member.user_id == user.id)
     res_member = await session.execute(stmt_member)
     member = res_member.scalars().first()
-
-    if member and getattr(member, "is_access_blocked", False):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accès bloqué")
     
     tenant_id_str = str(member.tenant_id) if member else None
     
@@ -103,8 +98,6 @@ async def login_json_endpoint(
              role_name = role_obj.name
              
         if member:
-            if getattr(member, "is_access_blocked", False):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Accès bloqué")
             tenant = await session.get(Tenant, member.tenant_id)
             if tenant:
                  tenant_info = TenantInfo(
@@ -208,8 +201,7 @@ async def forgot_password(
     )
 
     # 2. "Envoyer" l'email (Simulation Log)
-    frontend_url = os.getenv("FRONTEND_URL", "https://app.fmkiller.com").rstrip("/")
-    reset_link = f"{frontend_url}/reset-password?token={reset_token}"
+    reset_link = f"https://app.fmkiller.com/reset-password?token={reset_token}"
     logger.info(f"[EMAIL MOCK] Password Reset for {user.email}: {reset_link}")
 
     return {"message": "Si cet email existe, un lien de réinitialisation a été envoyé."}
@@ -371,20 +363,7 @@ async def create_tenant_account(
     new_slug = f"{clean_name}-{uuid.uuid4().hex[:4]}" 
     
     # Gestion du lien FFF
-    if signup_data.is_fff_linked and not signup_data.fff_real_club_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Liaison FFF activée : l'ID du club FFF est requis."
-        )
-
     real_id = signup_data.fff_real_club_id if signup_data.is_fff_linked else None
-
-    def _normalize_text(value: str) -> str:
-        value = (value or "").strip().lower()
-        value = " ".join(value.split())
-        value = unicodedata.normalize("NFKD", value)
-        value = "".join(ch for ch in value if not unicodedata.combining(ch))
-        return value
 
     # Check if this FFF club is already claimed by another tenant?
     if real_id:
@@ -401,40 +380,18 @@ async def create_tenant_account(
         res_ref_club = await session.execute(stmt_ref_club)
         ref_club = res_ref_club.scalars().first()
 
-        if not ref_club:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Sécurité : club introuvable dans la base de référence (impossible de vérifier le président)."
-            )
-
-        signup_email = (signup_data.email or "").lower().strip()
-        official_email = (ref_club.president_email or "").lower().strip()
-
-        official_first = (ref_club.president_first_name or "").strip()
-        official_last = (ref_club.president_last_name or "").strip()
-        has_official_name = bool(official_first) and bool(official_last)
-
-        if not (bool(official_email) or has_official_name):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Sécurité : informations président manquantes pour ce club (contactez le support)."
-            )
-
-        email_match = bool(official_email) and official_email == signup_email
-
-        signup_full = _normalize_text(signup_data.full_name)
-        official_full = _normalize_text(f"{official_first} {official_last}")
-        official_full_rev = _normalize_text(f"{official_last} {official_first}")
-        name_match = has_official_name and (signup_full == official_full or signup_full == official_full_rev)
-
-        if not (email_match or name_match):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    "Sécurité : un club FFF ne peut être créé que par le président. "
-                    "Le nom et prénom (ou l'email) doivent être identiques à ceux stockés dans la table reference.club."
-                )
-            )
+        if ref_club and ref_club.president_email:
+             # Normalize emails
+             official_email = ref_club.president_email.lower().strip()
+             signup_email = signup_data.email.lower().strip()
+             
+             if official_email != signup_email:
+                 # Check if partial match or domain match could be allowed? 
+                 # For now, strict security as requested.
+                 raise HTTPException(
+                     status_code=status.HTTP_403_FORBIDDEN,
+                     detail="Sécurité : Seul le président officiel peut revendiquer ce club. Veuillez utiliser l'adresse email officielle connue de la FFF ou contacter le support."
+                 )
 
     new_tenant = Tenant(
         name=signup_data.club_name,

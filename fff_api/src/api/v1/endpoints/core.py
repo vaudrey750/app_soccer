@@ -1,8 +1,5 @@
 from typing import List, Optional, Dict, Any
 import uuid
-import os
-import secrets
-import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, desc, or_, and_
@@ -14,15 +11,13 @@ from sqlalchemy.orm import aliased
 from src.infrastructure.database.session import get_session
 from src.services.websocket_manager import manager
 from src.api.deps import get_current_active_user
-from src.core.security import get_password_hash, create_access_token
+from src.core.security import get_password_hash
 from src.domain.models.saas import User
 from src.domain.models.core import EventParticipation, Member, MemberRole, GameStatus, PlayerPosition, TeamMember, Carpool, CarpoolPassenger, Events
 from src.domain.models.reference import Game, Competition, Team
 from src.services.notification_service import notification_service
 
 router = APIRouter()
-
-logger = logging.getLogger(__name__)
 
 # --- Schemas ---
 class MemberRead(BaseModel):
@@ -33,9 +28,6 @@ class MemberRead(BaseModel):
     role: str
     position: Optional[str] = None
     club_id: uuid.UUID # tenant_id
-
-    # Access
-    is_access_blocked: bool = False
     
     # Address
     address: Optional[str] = None
@@ -90,18 +82,6 @@ class MemberUpdate(BaseModel):
     medical_certificate_date: Optional[date] = None
     contribution_status: Optional[str] = None
     clothing_size: Optional[str] = None
-
-    # Access
-    is_access_blocked: Optional[bool] = None
-
-
-class MemberInviteRequest(BaseModel):
-    email: str
-    first_name: str
-    last_name: str
-    role: str = "MEMBER"
-    team_id: Optional[uuid.UUID] = None
-    team_role: str = "PLAYER"
 
 class MemberTeamRead(BaseModel):
     id: uuid.UUID
@@ -210,7 +190,6 @@ async def read_members(
             role=role_name,
             position=position_name,
             club_id=member.tenant_id,
-            is_access_blocked=member.is_access_blocked,
             address=member.address,
             city=member.city,
             postal_code=member.postal_code,
@@ -314,7 +293,6 @@ async def create_member(
         role=role_obj.name if role_obj else "MEMBER",
         position=member_in.position,
         club_id=new_member.tenant_id,
-        is_access_blocked=new_member.is_access_blocked,
         address=new_member.address,
         city=new_member.city,
         postal_code=new_member.postal_code,
@@ -323,116 +301,6 @@ async def create_member(
         contribution_status=new_member.contribution_status,
         clothing_size=new_member.clothing_size
     )
-
-
-@router.post("/members/invite", status_code=200)
-async def invite_member(
-    payload: MemberInviteRequest,
-    current_user: User = Depends(get_current_active_user),
-    session: AsyncSession = Depends(get_session),
-):
-    # 1. Resolve Tenant Context & Role
-    stmt_ctx = select(Member, MemberRole).join(
-        MemberRole, Member.role_in_app == MemberRole.id, isouter=True
-    ).where(Member.user_id == current_user.id)
-    row = (await session.execute(stmt_ctx)).first()
-
-    if not row:
-        raise HTTPException(status_code=403, detail="User is not a member of any club")
-
-    current_member, current_role = row
-    current_role_name = current_role.name if current_role else "MEMBER"
-    if current_role_name not in ["ADMIN", "Président", "Administrateur"]:
-        raise HTTPException(status_code=403, detail="Not authorized to invite members")
-
-    tenant_id = current_member.tenant_id
-
-    # 2. Find or create User
-    stmt_user = select(User).where(User.email == payload.email)
-    user_obj = (await session.execute(stmt_user)).scalars().first()
-    if not user_obj:
-        temp_password = secrets.token_urlsafe(16)
-        user_obj = User(
-            email=payload.email,
-            password_hash=get_password_hash(temp_password),
-            full_name=f"{payload.first_name} {payload.last_name}",
-        )
-        session.add(user_obj)
-        await session.commit()
-        await session.refresh(user_obj)
-
-    # 3. Resolve role for Member
-    role_obj = (await session.execute(select(MemberRole).where(MemberRole.name == payload.role))).scalars().first()
-    if not role_obj:
-        role_obj = (await session.execute(select(MemberRole).where(MemberRole.name == "MEMBER"))).scalars().first()
-    role_id = role_obj.id if role_obj else None
-
-    # 4. Find or create Member for this tenant
-    stmt_member = select(Member).where(
-        Member.tenant_id == tenant_id,
-        or_(Member.user_id == user_obj.id, Member.email == payload.email),
-    )
-    member = (await session.execute(stmt_member)).scalars().first()
-
-    if member:
-        if member.user_id is None:
-            member.user_id = user_obj.id
-        if member.email is None:
-            member.email = payload.email
-        member.first_name = payload.first_name
-        member.last_name = payload.last_name
-        if role_id:
-            member.role_in_app = role_id
-        session.add(member)
-        await session.commit()
-        await session.refresh(member)
-    else:
-        member = Member(
-            tenant_id=tenant_id,
-            user_id=user_obj.id,
-            first_name=payload.first_name,
-            last_name=payload.last_name,
-            email=payload.email,
-            role_in_app=role_id,
-        )
-        session.add(member)
-        await session.commit()
-        await session.refresh(member)
-
-    # 5. Optional: attach to team (non-destructive)
-    if payload.team_id is not None:
-        team = await session.get(Team, payload.team_id)
-        if not team or team.tenant_id != tenant_id:
-            raise HTTPException(status_code=404, detail="Team not found")
-
-        stmt_tm = select(TeamMember).where(
-            TeamMember.team_id == payload.team_id,
-            TeamMember.member_id == member.id,
-        )
-        tm = (await session.execute(stmt_tm)).scalars().first()
-        if not tm:
-            session.add(
-                TeamMember(
-                    team_id=payload.team_id,
-                    member_id=member.id,
-                    role=payload.team_role,
-                    position_id=None,
-                )
-            )
-            await session.commit()
-
-    # 6. Send invitation link (mock via logs)
-    expires = timedelta(days=7)
-    reset_token = create_access_token(
-        data={"sub": user_obj.email, "type": "reset_password"},
-        expires_delta=expires,
-    )
-
-    frontend_url = os.getenv("FRONTEND_URL", "https://app.fmkiller.com").rstrip("/")
-    reset_link = f"{frontend_url}/reset-password?token={reset_token}"
-    logger.info(f"[EMAIL MOCK] Invitation for {user_obj.email} (tenant={tenant_id}): {reset_link}")
-
-    return {"message": "Invitation envoyée (si l'email est valide)."}
 
 @router.get("/members", response_model=List[MemberRead])
 async def read_members(
@@ -481,7 +349,6 @@ async def read_members(
             role=role_name,
             position=position_name,
             club_id=member.tenant_id,
-            is_access_blocked=member.is_access_blocked,
             address=member.address,
             city=member.city,
             postal_code=member.postal_code,
@@ -548,7 +415,6 @@ async def read_member(
         role=role_name,
         position=position_name,
         club_id=member.tenant_id,
-        is_access_blocked=member.is_access_blocked,
         address=member.address,
         city=member.city,
         postal_code=member.postal_code,
@@ -674,14 +540,6 @@ async def update_member(
         target_member.contribution_status = member_in.contribution_status
     if member_in.clothing_size is not None:
         target_member.clothing_size = member_in.clothing_size
-
-    # Access block (Only ADMIN-level, never self)
-    if member_in.is_access_blocked is not None:
-        if is_self:
-            raise HTTPException(status_code=400, detail="Cannot change your own access status")
-        if current_role_name not in ["ADMIN", "Président", "Administrateur"]:
-            raise HTTPException(status_code=403, detail="Not authorized to block/unblock access")
-        target_member.is_access_blocked = member_in.is_access_blocked
         
     # Role Update (Only ADMIN)
     if member_in.role is not None:
@@ -717,7 +575,6 @@ async def update_member(
         role=final_role.name if final_role else "MEMBER",
         position=final_pos.name if final_pos else None,
         club_id=target_member.tenant_id,
-        is_access_blocked=target_member.is_access_blocked,
         address=target_member.address,
         city=target_member.city,
         postal_code=target_member.postal_code,
@@ -777,32 +634,21 @@ class ParticipantRead(BaseModel):
     rating: Optional[float] = None
     motm_votes: Optional[int] = 0
 
-
-class TrainingExercise(BaseModel):
-    name: str
-    duration_minutes: Optional[int] = None
-    description: Optional[str] = None
-    order: Optional[int] = None
-
 class EventCreate(BaseModel):
     type: int = Field(description="1: Match, 2: Training, 3: Meeting, 4: Tournament, 5: Social")
-    team_id: Optional[uuid.UUID] = None
     title: str
     start_date: datetime
     end_date: Optional[datetime] = None
     location: Optional[str] = None
     description: Optional[str] = None
-    exercises: Optional[List[TrainingExercise]] = None
 
 class EventUpdate(BaseModel):
     title: Optional[str] = None
     type: Optional[int] = None
-    team_id: Optional[uuid.UUID] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     location: Optional[str] = None
     description: Optional[str] = None
-    exercises: Optional[List[TrainingExercise]] = None
 
 class EventRead(BaseModel):
     event_id: uuid.UUID
@@ -814,7 +660,6 @@ class EventRead(BaseModel):
     end_date: Optional[datetime] = None
     location: Optional[str] = None
     description: Optional[str] = None
-    exercises: Optional[List[TrainingExercise]] = None
     status: str = "scheduled" 
     user_participation_status: Optional[int] = None # Added for frontend status
     lineup_published: bool = False
@@ -845,26 +690,6 @@ async def create_event(
         raise HTTPException(status_code=403, detail="Not a member of any tenant")
         
     tenant_id = current_member.tenant_id
-
-    if event_in.exercises and event_in.type != 2:
-        raise HTTPException(status_code=422, detail="Exercises are only allowed for training events (type=2).")
-
-    resolved_team_id: Optional[uuid.UUID] = event_in.team_id
-    if resolved_team_id is None:
-        # Best-effort inference: if the member belongs to exactly one team, attach it.
-        try:
-            tm_stmt = select(TeamMember.team_id).where(TeamMember.member_id == current_member.id)
-            tm_res = await session.execute(tm_stmt)
-            team_ids = list({r[0] for r in tm_res.all() if r and r[0]})
-            if len(team_ids) == 1:
-                resolved_team_id = team_ids[0]
-        except Exception:
-            resolved_team_id = None
-
-    if resolved_team_id is not None:
-        team = await session.get(Team, resolved_team_id)
-        if not team or team.tenant_id != tenant_id:
-            raise HTTPException(status_code=403, detail="Invalid team_id for current tenant")
     
     # Ensure datetimes are naive (remove timezone info) to satisfy asyncpg/Postgres TIMESTAMP WITHOUT TIME ZONE
     start_date = event_in.start_date.replace(tzinfo=None) if event_in.start_date.tzinfo else event_in.start_date
@@ -875,14 +700,12 @@ async def create_event(
     # 2. Create Event
     db_event = Events(
         tenant_id=tenant_id,
-        team_id=resolved_team_id,
         type=event_in.type,
         title=event_in.title,
         start_date=start_date,
         end_date=end_date,
         location=event_in.location,
-        description=event_in.description,
-        exercises=[ex.model_dump() for ex in event_in.exercises] if event_in.exercises else None,
+        description=event_in.description
     )
     session.add(db_event)
     await session.commit()
@@ -891,7 +714,6 @@ async def create_event(
     return EventRead(
         event_id=db_event.id,
         status_id=1,
-        team_id=db_event.team_id,
         type=db_event.type,
         title=db_event.title,
         status="SCHEDULED",
@@ -899,7 +721,6 @@ async def create_event(
         end_date=db_event.end_date,
         location=db_event.location,
         description=db_event.description,
-        exercises=[TrainingExercise(**ex) for ex in db_event.exercises] if db_event.exercises else None,
         participants=[]
     )
 
@@ -933,11 +754,6 @@ async def update_event(
     # Update fields
     if event_in.type is not None:
         event.type = event_in.type
-    if event_in.team_id is not None:
-        team = await session.get(Team, event_in.team_id)
-        if not team or team.tenant_id != member.tenant_id:
-            raise HTTPException(status_code=403, detail="Invalid team_id for current tenant")
-        event.team_id = event_in.team_id
     if event_in.title is not None:
         event.title = event_in.title
     if event_in.start_date is not None:
@@ -948,10 +764,6 @@ async def update_event(
         event.location = event_in.location
     if event_in.description is not None:
         event.description = event_in.description
-    if event_in.exercises is not None:
-        if (event_in.type if event_in.type is not None else event.type) != 2 and event_in.exercises:
-            raise HTTPException(status_code=422, detail="Exercises are only allowed for training events (type=2).")
-        event.exercises = [ex.model_dump() for ex in event_in.exercises] if event_in.exercises else None
         
     session.add(event)
     await session.commit()
@@ -960,7 +772,6 @@ async def update_event(
     return EventRead(
         event_id=event.id,
         status_id=event.status_id if hasattr(event, 'status_id') else 1,
-        team_id=getattr(event, 'team_id', None),
         type=event.type,
         title=event.title,
         status="CANCELLED" if getattr(event, 'status_id', 1) == 4 else "SCHEDULED",
@@ -968,7 +779,6 @@ async def update_event(
         end_date=event.end_date,
         location=event.location,
         description=event.description,
-        exercises=[TrainingExercise(**ex) for ex in event.exercises] if getattr(event, 'exercises', None) else None,
         participants=[] # Minimal return
     )
 
@@ -1162,10 +972,7 @@ async def read_events(
     if team_id:
         query = query.where(
             or_(
-                and_(
-                    Events.game_id == None,
-                    or_(Events.team_id == None, Events.team_id == team_id),
-                ),
+                Events.game_id == None,
                 and_(Events.game_id != None, or_(Game.home_team_id == team_id, Game.away_team_id == team_id))
             )
         )
@@ -1186,7 +993,7 @@ async def read_events(
         user_status = row[6]
 
         game_details = None
-        my_team_id = getattr(e, 'team_id', None)
+        my_team_id = None
 
         if game:
              # Determine Home/Away
@@ -1233,7 +1040,6 @@ async def read_events(
             end_date=e.end_date,
             location=e.location,
             description=e.description,
-            exercises=[TrainingExercise(**ex) for ex in e.exercises] if getattr(e, 'exercises', None) else None,
             status=computed_status_name or "SCHEDULED",
             game=game_details,
             user_participation_status=user_status,
@@ -1427,7 +1233,7 @@ async def read_event(
 
 
     # Compute team_id associated with this event for the tenant
-    my_team_id = getattr(event, 'team_id', None)
+    my_team_id = None
     if game_details:
         if game_details.is_home:
             my_team_id = game_details.home_team_id
@@ -1593,7 +1399,6 @@ async def read_event(
         end_date=event.end_date,
         location=event.location,
         description=event.description,
-        exercises=[TrainingExercise(**ex) for ex in event.exercises] if getattr(event, 'exercises', None) else None,
         lineup_published=event.lineup_published if hasattr(event, "lineup_published") else False,
         game=game_details,
         participants=list(participants_map.values()),

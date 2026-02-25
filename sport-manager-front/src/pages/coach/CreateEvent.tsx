@@ -5,16 +5,13 @@ import { Card } from '../../components/atoms/Card';
 import { ChevronLeft, Calendar, Trophy, MapPin, AlignLeft, Clock } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { format, parseISO } from 'date-fns';
-import { useTeam } from '../../context/TeamContext';
 
 const CreateEvent: React.FC = () => {
     const navigate = useNavigate();
     const { id } = useParams<{ id: string }>();
     const isEditMode = !!id;
-    const { selectedTeam, teams } = useTeam();
 
     const [isLoading, setIsLoading] = useState(false);
-    const [loadedTeamId, setLoadedTeamId] = useState<string | undefined>(undefined);
     
     // 1: Match, 2: Training, 4: Tournament
     const [formData, setFormData] = useState({
@@ -25,8 +22,6 @@ const CreateEvent: React.FC = () => {
         location: '',
         description: ''
     });
-
-    const [exercises, setExercises] = useState<Array<{ name: string; durationMinutes: string; description: string }>>([]);
 
     useEffect(() => {
         if (isEditMode && id) {
@@ -41,17 +36,6 @@ const CreateEvent: React.FC = () => {
                         location: event.location || '',
                         description: event.description || ''
                     });
-
-                    setLoadedTeamId(event.team_id);
-                    setExercises(
-                        Array.isArray(event.exercises)
-                            ? event.exercises.map((ex) => ({
-                                name: ex.name ?? '',
-                                durationMinutes: ex.duration_minutes != null ? String(ex.duration_minutes) : '',
-                                description: ex.description ?? '',
-                            }))
-                            : []
-                    );
                 } catch (error) {
                     console.error("Failed to load event", error);
                 }
@@ -60,34 +44,19 @@ const CreateEvent: React.FC = () => {
         }
     }, [id, isEditMode]);
 
-    const resolvedTeamId = selectedTeam?.team_id ?? (teams.length === 1 ? teams[0]?.team_id : undefined) ?? loadedTeamId;
-
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
         try {
             // Combine date and time
             const start_date = new Date(`${formData.date}T${formData.time}`).toISOString();
-
-            const cleanedExercises = formData.type === 2
-                ? exercises
-                    .map((ex, idx) => ({
-                        name: ex.name.trim(),
-                        duration_minutes: ex.durationMinutes.trim() ? Number(ex.durationMinutes) : undefined,
-                        description: ex.description.trim() ? ex.description.trim() : undefined,
-                        order: idx + 1,
-                    }))
-                    .filter((ex) => ex.name.length > 0)
-                : undefined;
             
             const payload = {
                 type: formData.type,
-                team_id: resolvedTeamId,
                 title: formData.title || (formData.type === 2 ? "Entraînement" : "Match Amical"),
                 start_date: start_date,
                 location: formData.location,
-                description: formData.description,
-                exercises: cleanedExercises && cleanedExercises.length > 0 ? cleanedExercises : undefined,
+                description: formData.description
             };
 
             if (isEditMode && id) {
@@ -208,92 +177,6 @@ const CreateEvent: React.FC = () => {
                         </div>
                     </div>
                 </Card>
-
-                {formData.type === 2 && (
-                    <Card className="p-6 space-y-4">
-                        <div className="flex items-center justify-between">
-                            <h2 className="text-sm font-black text-slate-900">Exercices (Optionnel)</h2>
-                            <button
-                                type="button"
-                                className="text-sm font-bold text-indigo-600 hover:text-indigo-700 transition-colors"
-                                onClick={() => setExercises([...exercises, { name: '', durationMinutes: '', description: '' }])}
-                            >
-                                Ajouter
-                            </button>
-                        </div>
-
-                        {exercises.length === 0 ? (
-                            <p className="text-sm text-slate-500">
-                                Ajoute les exercices réalisés pendant l'entraînement.
-                            </p>
-                        ) : (
-                            <div className="space-y-4">
-                                {exercises.map((ex, idx) => (
-                                    <div key={idx} className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-                                        <div className="flex items-center justify-between">
-                                            <p className="text-sm font-bold text-slate-700">Exercice {idx + 1}</p>
-                                            <button
-                                                type="button"
-                                                className="text-sm font-bold text-slate-500 hover:text-slate-700 transition-colors"
-                                                onClick={() => setExercises(exercises.filter((_, i) => i !== idx))}
-                                            >
-                                                Supprimer
-                                            </button>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-bold text-slate-700 mb-2">Nom</label>
-                                            <input
-                                                type="text"
-                                                className="w-full p-3 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium placeholder:text-slate-400"
-                                                placeholder="Jeu de possession, conduite, finition..."
-                                                value={ex.name}
-                                                onChange={(e) => {
-                                                    const next = [...exercises];
-                                                    next[idx] = { ...next[idx], name: e.target.value };
-                                                    setExercises(next);
-                                                }}
-                                            />
-                                        </div>
-
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-sm font-bold text-slate-700 mb-2">Durée (min)</label>
-                                                <input
-                                                    type="number"
-                                                    min={0}
-                                                    className="w-full p-3 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium placeholder:text-slate-400"
-                                                    placeholder="20"
-                                                    value={ex.durationMinutes}
-                                                    onChange={(e) => {
-                                                        const next = [...exercises];
-                                                        next[idx] = { ...next[idx], durationMinutes: e.target.value };
-                                                        setExercises(next);
-                                                    }}
-                                                />
-                                            </div>
-                                            <div className="hidden md:block" />
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-bold text-slate-700 mb-2">Description</label>
-                                            <textarea
-                                                className="w-full p-3 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 min-h-[80px] font-medium placeholder:text-slate-400"
-                                                placeholder="Consignes, objectifs, variantes..."
-                                                value={ex.description}
-                                                onChange={(e) => {
-                                                    const next = [...exercises];
-                                                    next[idx] = { ...next[idx], description: e.target.value };
-                                                    setExercises(next);
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </Card>
-                )}
 
                 <button 
                     type="submit" 

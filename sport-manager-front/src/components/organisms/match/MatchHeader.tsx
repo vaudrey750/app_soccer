@@ -19,14 +19,12 @@ interface MatchHeaderProps {
     onUpdateStatus: (statusId: number) => void;
     onResetMatch: () => void;
     hasTimeline: boolean;
-    canStartLive?: boolean;
-    startLiveDisabledReason?: string;
 }
 
 export const MatchHeader: React.FC<MatchHeaderProps> = ({
     event, canManage, isTimerRunning, elapsedTime, additionalTime,
     accumulatedStoppage, stoppageStart, onToggleStoppage, onSetAdditionalTime,
-    onUpdateStatus, onResetMatch, hasTimeline, canStartLive = true, startLiveDisabledReason
+    onUpdateStatus, onResetMatch, hasTimeline
 }) => {
     const navigate = useNavigate();
     const toast = useToast();
@@ -183,25 +181,10 @@ export const MatchHeader: React.FC<MatchHeaderProps> = ({
                             ) : (
                                 <div className="flex flex-col items-center">
                                 <button 
-                                    type="button"
-                                    onClick={() => {
-                                        const disabled = Boolean(canManage && !canStartLive);
-                                        if (disabled) {
-                                            toast.info({
-                                                title: 'Compo requise',
-                                                message: startLiveDisabledReason || 'Renseignez 11 titulaires sur le terrain avant de lancer le live.',
-                                            });
-                                            return;
-                                        }
-                                        onUpdateStatus(5);
-                                    }}
-                                    disabled={Boolean(canManage && !canStartLive)}
-                                    title={Boolean(canManage && !canStartLive) ? (startLiveDisabledReason || 'Compo incomplète') : undefined}
+                                    onClick={() => onUpdateStatus(5)}
                                     className={cn(
-                                        "font-black py-2 px-8 rounded-full shadow-lg transition-all flex items-center gap-2 active:scale-95 text-sm uppercase tracking-wider",
-                                        Boolean(canManage && !canStartLive)
-                                            ? "bg-slate-700 text-slate-400 cursor-not-allowed shadow-slate-900/30"
-                                            : "bg-emerald-500 hover:bg-emerald-400 text-white shadow-emerald-500/50"
+                                        "bg-emerald-500 hover:bg-emerald-400 text-white font-black py-2 px-8 rounded-full shadow-lg shadow-emerald-500/50 transition-all flex items-center gap-2 active:scale-95 text-sm uppercase tracking-wider",
+                                        event.game?.status_id === 5 && "animate-pulse"
                                     )}
                                 >
                                     <Play size={18} fill="currentColor" />
