@@ -36,9 +36,6 @@ class Member(SQLModel, table=True):
     contribution_status: Optional[str] = Field(default="UNPAID", max_length=20, description="Statut cotisation (UNPAID, PARTIAL, PAID)")
     clothing_size: Optional[str] = Field(default=None, max_length=10, description="Taille équipements (S, M, L...)")
 
-    # Access
-    is_access_blocked: bool = Field(default=False, description="Si true, l'utilisateur ne peut plus se connecter à l'app pour ce club")
-
 
 
 class PlayerPosition(SQLModel, table=True):
@@ -71,11 +68,6 @@ class Events(SQLModel, table=True):
     __table_args__ = {"schema": "core"}
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, description="ID unique de l'événement")
     tenant_id: uuid.UUID = Field(foreign_key="saas.tenant.id", description="Club organisateur")
-    team_id: Optional[uuid.UUID] = Field(
-        default=None,
-        foreign_key="reference.team.id",
-        description="Équipe concernée (pour événements manuels, entraînements, etc.)",
-    )
     
     type: int = Field(foreign_key="core.event_type.id", description="Type d'événement")
     status_id: int = Field(default=1, foreign_key="core.game_status.id", description="Statut de l'événement (SCHEDULED, CANCELLED...)")
@@ -84,12 +76,6 @@ class Events(SQLModel, table=True):
     end_date: Optional[datetime] = Field(default=None, description="Date et heure de fin")
     location: Optional[str] = Field(default=None, max_length=255, description="Lieu (adresse ou nom stade)")
     description: Optional[str] = Field(default=None, description="Description ou notes internes")
-
-    exercises: Optional[List[Dict[str, Any]]] = Field(
-        default=None,
-        sa_column=Column(JSON),
-        description="Liste d'exercices (uniquement pour les entraînements)",
-    )
     
     game_id: Optional[uuid.UUID] = Field(default=None, foreign_key="reference.game.id", description="Lien vers le match si type=GAME")
 

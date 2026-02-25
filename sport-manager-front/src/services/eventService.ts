@@ -37,13 +37,6 @@ export interface TimelineEventDTO {
 
 export type EventType = 'match' | 'training' | 'meeting' | 'tournament' | 'social' | 'other';
 
-export interface TrainingExerciseDTO {
-    name: string;
-    duration_minutes?: number | null;
-    description?: string | null;
-    order?: number | null;
-}
-
 export interface EventDTO {
   event_id: string;
   team_id?: string;
@@ -55,7 +48,6 @@ export interface EventDTO {
   status_id?: number; // Added field
   location?: string;
   description?: string;
-    exercises?: TrainingExerciseDTO[];
   lineup_published?: boolean;
   game?: GameDetailsDTO;
   participants?: ParticipantDTO[];
@@ -94,24 +86,20 @@ export interface EventDetailDTO extends EventDTO {
 
 export interface EventCreateDTO {
     type: number;
-    team_id?: string;
     title: string;
     start_date: string;
     end_date?: string;
     location?: string;
     description?: string;
-    exercises?: TrainingExerciseDTO[];
 }
 
 export interface EventUpdateDTO {
     type?: number;
-    team_id?: string;
     title?: string;
     start_date?: string;
     end_date?: string;
     location?: string;
     description?: string;
-    exercises?: TrainingExerciseDTO[];
 }
 
 export const eventService = {
@@ -164,7 +152,6 @@ export const eventService = {
         status_id: e.user_participation_status,
         location: e.location,
         description: e.description,
-        exercises: Array.isArray(e.exercises) ? e.exercises : undefined,
         game: e.game ? {
             game_id: e.game.game_id,
             is_home: e.game.is_home,
@@ -187,11 +174,8 @@ export const eventService = {
             last_name: p.last_name || '',
             role: p.role,
             photo_url: p.photo_url,
-            position: p.position,
             status: mapStatus(p.status_id),
-            status_id: p.status_id,
-            rating: p.rating,
-            motm_votes: p.motm_votes,
+            status_id: p.status_id
         })) : []
     }));
 
@@ -227,7 +211,6 @@ export const eventService = {
           lineup_published: e.lineup_published,
           location: e.location,
           description: e.description,
-          exercises: Array.isArray(e.exercises) ? e.exercises : undefined,
           my_motm_vote_member_id: e.my_motm_vote_member_id ?? null,
           motm_id: e.motm_id ?? null,
           coach_motm_member_id: e.coach_motm_member_id ?? null,

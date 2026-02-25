@@ -29,14 +29,6 @@ class Tenant(SQLModel, table=True):
     
     # Billing
     stripe_customer_id: Optional[str] = Field(default=None, max_length=100, unique=True, description="Identifiant client Stripe pour la facturation")
-
-    # Settings
-    active_season_name: Optional[str] = Field(
-        default=None,
-        max_length=50,
-        foreign_key="reference.season.name",
-        description="Saison active sélectionnée pour ce club (référence Season.name)",
-    )
     
     created_at: Optional[datetime] = Field(default_factory=datetime.now, description="Date de création du compte")
 

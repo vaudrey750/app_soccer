@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { ArrowLeft } from 'lucide-react';
 import { useToast } from '../../hooks/useToast';
@@ -30,7 +30,6 @@ import { FloatingChat } from '../../components/organisms/match/FloatingChat';
 const MatchCenter: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
-    const [searchParams] = useSearchParams();
     const { user } = useAuth();
     const liveAllowedRoles = useMemo(() => new Set(['COACH', 'PRESIDENT', 'ASSISTANT', 'ADMIN']), []);
     const canManage = !!user && liveAllowedRoles.has(user.role);
@@ -41,13 +40,6 @@ const MatchCenter: React.FC = () => {
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [selectedFormation, setSelectedFormation] = useState<string>('');
     const [currentLineup, setCurrentLineup] = useState<{ [positionId: number]: string }>({});
-
-    useEffect(() => {
-        const tab = searchParams.get('tab');
-        if (tab === 'tactics' || tab === 'live' || tab === 'stats' || tab === 'motm') {
-            setActiveTab(tab);
-        }
-    }, [searchParams]);
 
     // Data Fetching
     const { data: event, isLoading: isEventLoading, isError: isEventError } = useMatchEvent(id);
@@ -160,64 +152,9 @@ const MatchCenter: React.FC = () => {
         }
     }, [matchLineup?.items, (event?.game as any)?.lineup, currentLineup]);
 
-    const kickoffGuard = useMemo(() => {
-        if (!canManage) return { ok: true as const, reason: '' };
-
-        const isLive = event?.game?.status_id === 5 || event?.game?.status === 'LIVE';
-        const isFinished = event?.game?.status_id === 2 || event?.game?.status === 'PLAYED';
-        if (isLive || isFinished) return { ok: true as const, reason: '' };
-
-        const formationId = selectedFormation ? parseInt(selectedFormation, 10) : NaN;
-        if (!Number.isFinite(formationId)) {
-            return {
-                ok: false as const,
-                reason: 'Choisissez une formation et renseignez les 11 titulaires avant de lancer le live.',
-            };
-        }
-
-        const formation = (formations || []).find((f: any) => f?.id === formationId);
-        if (!formation || !Array.isArray((formation as any).positions)) {
-            return {
-                ok: false as const,
-                reason: 'Formation introuvable. Revenez à la compo et sélectionnez une formation.',
-            };
-        }
-
-        const pitchPositions = (formation as any).positions.filter(
-            (p: any) => typeof p?.role === 'string' && !p.role.startsWith('B') && p.role !== 'RES'
-        );
-        const requiredCount = pitchPositions.length || 11;
-        const assignedIds = pitchPositions
-            .map((p: any) => currentLineup[p.id])
-            .filter((v: any): v is string => typeof v === 'string' && v.trim().length > 0);
-        const unique = new Set(assignedIds);
-
-        if (assignedIds.length !== requiredCount) {
-            const missing = Math.max(0, requiredCount - assignedIds.length);
-            return {
-                ok: false as const,
-                reason: `Compo incomplète : il manque ${missing} joueur(s) sur le terrain.`,
-            };
-        }
-
-        if (unique.size !== requiredCount) {
-            return {
-                ok: false as const,
-                reason: 'Compo invalide : un joueur est placé plusieurs fois sur le terrain.',
-            };
-        }
-
-        return { ok: true as const, reason: '' };
-    }, [canManage, currentLineup, event?.game?.status, event?.game?.status_id, formations, selectedFormation]);
-
     // Handlers
     const handleStatusChange = async (newStatusId: number) => {
         if (!id) return;
-        if (newStatusId === 5 && !kickoffGuard.ok) {
-            toast.info({ title: 'Compo requise', message: kickoffGuard.reason });
-            setActiveTab('tactics');
-            return;
-        }
         try {
             await updateStatusMutation.mutateAsync({ eventId: id, statusId: newStatusId });
         } catch (err) {
@@ -388,8 +325,6 @@ const MatchCenter: React.FC = () => {
                     onUpdateStatus={handleStatusChange}
                     onResetMatch={handleResetMatch}
                     hasTimeline={timeline.length > 0}
-                    canStartLive={kickoffGuard.ok}
-                    startLiveDisabledReason={kickoffGuard.ok ? undefined : kickoffGuard.reason}
                 />
 
                 <MatchTabs 

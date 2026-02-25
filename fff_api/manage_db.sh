@@ -41,14 +41,9 @@ case "$CMD" in
     "init")
         echo "Initializing Database..."
         
-        # 0. Create Schemas (optional)
-        # Note: schemas are created by the initial Alembic migration (initial_init).
-        if docker compose exec api sh -c "test -f scripts/create_schemas.py" >/dev/null 2>&1; then
-            echo "Creating schemas..."
-            docker compose exec api python scripts/create_schemas.py
-        else
-            echo "No scripts/create_schemas.py found. Skipping (schemas are handled by Alembic)."
-        fi
+        # 0. Create Schemas
+        echo "Creating schemas..."
+        docker compose exec api python scripts/create_schemas.py
 
         # Check if migrations already exist
         # We use a simple check on the directory inside the container
