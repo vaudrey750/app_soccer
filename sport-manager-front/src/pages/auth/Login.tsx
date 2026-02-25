@@ -83,7 +83,11 @@ const Login: React.FC = () => {
                                     labelClassName="text-slate-300"
                                 />
                                 <div className="flex justify-end">
-                                    <button type="button" className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors">
+                                    <button
+                                        type="button"
+                                        onClick={() => navigate('/forgot-password')}
+                                        className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
+                                    >
                                         Mot de passe oublié ?
                                     </button>
                                 </div>
@@ -110,7 +114,14 @@ const Login: React.FC = () => {
                 </Card>
 
                 <p className="text-center text-slate-500 text-sm mt-8">
-                    Pas encore de compte ? <button className="text-indigo-400 font-bold hover:text-indigo-300 transition-colors">Rejoindre un club</button>
+                    Pas encore de compte ?{' '}
+                    <button
+                        type="button"
+                        onClick={() => navigate('/signup')}
+                        className="text-indigo-400 font-bold hover:text-indigo-300 transition-colors"
+                    >
+                        Rejoindre un club
+                    </button>
                 </p>
             </div>
         </div>
