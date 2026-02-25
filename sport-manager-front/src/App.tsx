@@ -4,13 +4,18 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { TeamProvider } from './context/TeamContext';
 import { SessionManager } from './components/SessionManager';
 import Login from './pages/auth/Login';
+import Signup from './pages/auth/Signup';
+import ForgotPassword from './pages/auth/ForgotPassword';
+import ResetPassword from './pages/auth/ResetPassword';
 import PlayerDashboard from './pages/player/Dashboard';
 import CoachDashboard from './pages/coach/Dashboard';
+import AdminDashboard from './pages/admin/Dashboard';
 import CoachConvocations from './pages/coach/Convocations';
 import MatchCenter from './pages/coach/MatchCenter';
 import Profile from './pages/player/Profile';
 import CalendarPage from './pages/player/Calendar';
 import MyClub from './pages/player/MyClub';
+import Career from './pages/player/Career';
 import PlayerStatistics from './pages/player/Statistics';
 import CoachStatistics from './pages/coach/Statistics';
 import CreateEvent from './pages/coach/CreateEvent';
@@ -33,6 +38,9 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 const DashboardRouter = () => {
     const { user } = useAuth();
+    if (user?.role === 'ADMIN' || user?.role === 'PRESIDENT') {
+        return <AdminDashboard />;
+    }
     if (user?.role === 'COACH') {
         return <CoachDashboard />;
     }
@@ -54,6 +62,9 @@ function App() {
                 <SessionManager />
         <Routes>
           <Route path="/login" element={<Login />} />
+                    <Route path="/signup" element={<Signup />} />
+                    <Route path="/forgot-password" element={<ForgotPassword />} />
+                    <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/" element={
               <ProtectedRoute>
                   <DashboardRouter />
@@ -73,6 +84,11 @@ function App() {
           <Route path="/profile" element={
               <ProtectedRoute>
                   <Profile />
+              </ProtectedRoute>
+          } />
+          <Route path="/career" element={
+              <ProtectedRoute>
+                  <Career />
               </ProtectedRoute>
           } />
           {/* Add placeholders for other nav items if needed */}

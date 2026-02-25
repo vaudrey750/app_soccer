@@ -246,12 +246,30 @@ const EventDetails: React.FC = () => {
 
     const startDate = parseISO(event.start_date);
     const isMatch = event.type === 'match';
+    const isPlayerRole = ['PLAYER', 'MEMBER'].includes(user?.role || '');
+    const canAnswerPresence = isMatch && isPlayerRole;
 
     const participantsByStatus = {
         present: event.participants.filter(p => p.status === 'present'),
         maybe: event.participants.filter(p => p.status === 'maybe'),
         absent: event.participants.filter(p => p.status === 'absent')
     };
+
+    const totalParticipants = event.participants.length;
+    const noResponseCount = Math.max(
+        0,
+        totalParticipants - (participantsByStatus.present.length + participantsByStatus.maybe.length + participantsByStatus.absent.length)
+    );
+
+    const pct = (count: number) => {
+        if (totalParticipants <= 0) return 0;
+        return (count / totalParticipants) * 100;
+    };
+
+    const confirmedPct = pct(participantsByStatus.present.length);
+    const uncertainPct = pct(participantsByStatus.maybe.length);
+    const absentPct = pct(participantsByStatus.absent.length);
+    const noResponsePct = pct(noResponseCount);
 
     const canSeeLineup = event && (
         ['COACH', 'ADMIN', 'ASSISTANT'].includes(user?.role || '') || 
@@ -339,6 +357,7 @@ const EventDetails: React.FC = () => {
                 {activeTab === 'overview' && (
                     <div className="space-y-6 -mt-6">
                         {/* Participation Toggle */}
+                        {canAnswerPresence && (
                         <Card className="shadow-xl border-none">
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="font-bold text-slate-800">Votre réponse</h3>
@@ -385,31 +404,63 @@ const EventDetails: React.FC = () => {
                         </button>
                     </div>
                 </Card>
+                        )}
 
-                {/* Team Presence Stats */}
-                <div className="grid grid-cols-3 gap-4">
-                    <div className="bg-emerald-100/50 p-4 rounded-2xl text-center border border-emerald-100">
-                        <span className="block text-2xl font-black text-emerald-600">{participantsByStatus.present.length}</span>
-                        <span className="text-[10px] font-bold text-emerald-400 uppercase">Présents</span>
+                {/* Team Presence Summary */}
+                <Card className="shadow-sm border border-slate-100">
+                    <div className="flex items-start justify-between gap-4">
+                        <div>
+                            <h3 className="font-bold text-slate-800">Présences</h3>
+                            <p className="text-xs font-medium text-slate-500">Résumé des réponses</p>
+                        </div>
+                        <div className="text-xs font-bold text-slate-600">
+                            {totalParticipants} participant{totalParticipants > 1 ? 's' : ''}
+                        </div>
                     </div>
-                    <div className="bg-orange-100/50 p-4 rounded-2xl text-center border border-orange-100">
-                        <span className="block text-2xl font-black text-orange-600">{participantsByStatus.maybe.length}</span>
-                        <span className="text-[10px] font-bold text-orange-400 uppercase">Incertains</span>
+
+                    <div className="mt-4">
+                        <div className="h-3 w-full rounded-full overflow-hidden bg-slate-100 flex" aria-label="Répartition des présences">
+                            <div className="h-full bg-emerald-500" style={{ width: `${confirmedPct}%` }} aria-label="Présents" />
+                            <div className="h-full bg-amber-400" style={{ width: `${uncertainPct}%` }} aria-label="Incertains" />
+                            <div className="h-full bg-rose-500" style={{ width: `${absentPct}%` }} aria-label="Absents" />
+                            <div className="h-full bg-slate-400" style={{ width: `${noResponsePct}%` }} aria-label="Sans réponse" />
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-bold">
+                            <div className="flex items-center gap-2 text-slate-700">
+                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                                Présents ({participantsByStatus.present.length})
+                            </div>
+                            <div className="flex items-center gap-2 text-slate-700">
+                                <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                                Incertains ({participantsByStatus.maybe.length})
+                            </div>
+                            <div className="flex items-center gap-2 text-slate-700">
+                                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                                Absents ({participantsByStatus.absent.length})
+                            </div>
+                            <div className="flex items-center gap-2 text-slate-700">
+                                <span className="w-2.5 h-2.5 rounded-full bg-slate-400" />
+                                Sans réponse ({noResponseCount})
+                            </div>
+                        </div>
                     </div>
-                    <div className="bg-red-100/50 p-4 rounded-2xl text-center border border-red-100">
-                        <span className="block text-2xl font-black text-red-600">{participantsByStatus.absent.length}</span>
-                        <span className="text-[10px] font-bold text-red-400 uppercase">Absents</span>
-                    </div>
-                </div>
+                </Card>
 
                 {/* Participants List */}
                 <div className="space-y-4">
-                    <h3 className="font-bold text-slate-800 pl-1">Participants</h3>
-                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+                    <div className="flex items-end justify-between gap-4 px-1">
+                        <h3 className="font-bold text-slate-800">Participants</h3>
+                        <div className="text-xs font-bold text-slate-500">
+                            {totalParticipants} au total
+                        </div>
+                    </div>
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden divide-y divide-slate-100">
                         {participantsByStatus.present.length > 0 && (
                             <div className="p-4 border-b border-slate-50">
-                                <h4 className="text-xs font-bold text-emerald-500 uppercase mb-3 flex items-center gap-2">
-                                    <CheckCircle size={12} /> Confirmés
+                                <h4 className="text-xs font-bold text-emerald-600 uppercase mb-3 flex items-center justify-between gap-2">
+                                    <span className="flex items-center gap-2"><CheckCircle size={12} /> Présents</span>
+                                    <span className="text-slate-400">{participantsByStatus.present.length}</span>
                                 </h4>
                                 <div className="space-y-3">
                                     {participantsByStatus.present.map(p => (
@@ -427,7 +478,10 @@ const EventDetails: React.FC = () => {
                         {/* Show others if needed or keep it clean with just presents */}
                          {(participantsByStatus.maybe.length > 0 || participantsByStatus.absent.length > 0) && (
                             <div className="p-4 bg-slate-50/50">
-                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Autres</h4>
+                                <h4 className="text-xs font-bold text-slate-500 uppercase mb-3 flex items-center justify-between gap-2">
+                                    <span>Autres</span>
+                                    <span className="text-slate-400">{participantsByStatus.maybe.length + participantsByStatus.absent.length}</span>
+                                </h4>
                                 <div className="space-y-2 opacity-60">
                                     {[...participantsByStatus.maybe, ...participantsByStatus.absent].map(p => (
                                         <div key={p.member_id} className="flex items-center gap-3">
