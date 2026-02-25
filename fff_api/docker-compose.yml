@@ -78,7 +78,8 @@ services:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
       - MINIO_SECURE=false
-    command: uvicorn src.api.server:app --host 0.0.0.0 --port 8000 --reload
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:5173}
+    command: sh -c "alembic upgrade head && uvicorn src.api.server:app --host 0.0.0.0 --port 8000 --reload"
     volumes:
       - ./src:/app/src
       - ./scripts:/app/scripts

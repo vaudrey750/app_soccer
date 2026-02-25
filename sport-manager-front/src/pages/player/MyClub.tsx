@@ -1,54 +1,74 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { memberService, MemberDTO } from '../../services/memberService';
 import { statsService, PlayerStatsDTO } from '../../services/statsService';
 import { Card } from '../../components/atoms/Card';
+import { Button } from '../../components/atoms/Button';
+import { Input } from '../../components/atoms/Input';
 import { Modal } from '../../components/molecules/Modal';
 import { User, Phone, Mail, Award, Trophy, Users, Star, Footprints, Target } from 'lucide-react';
 import { cn } from '../../utils/cn';
+import { getErrorMessage } from '../../utils/getErrorMessage';
 import { useTeam } from '../../context/TeamContext';
+import { useAuth } from '../../context/AuthContext';
 
 const MyClub: React.FC = () => {
     const { selectedTeam, teams } = useTeam();
+    const { user } = useAuth();
     const [members, setMembers] = useState<MemberDTO[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'roster' | 'standings'>('roster');
+
+    const roleUpper = String(user?.role ?? '').toUpperCase();
+    const canManageMembers = roleUpper.includes('ADMIN') || roleUpper.includes('PRESIDENT');
+
+    const [inviteEmail, setInviteEmail] = useState('');
+    const [inviteFirstName, setInviteFirstName] = useState('');
+    const [inviteLastName, setInviteLastName] = useState('');
+    const [inviteRole, setInviteRole] = useState<'MEMBER' | 'COACH' | 'ADMIN'>('MEMBER');
+    const [inviteLoading, setInviteLoading] = useState(false);
+    const [inviteMessage, setInviteMessage] = useState<string | null>(null);
+    const [inviteError, setInviteError] = useState<string | null>(null);
+
+    const [accessLoading, setAccessLoading] = useState(false);
+    const [accessError, setAccessError] = useState<string | null>(null);
     
     // Stats Modal State
     const [selectedMember, setSelectedMember] = useState<MemberDTO | null>(null);
     const [memberStats, setMemberStats] = useState<PlayerStatsDTO | null>(null);
     const [statsLoading, setStatsLoading] = useState(false);
 
-    useEffect(() => {
-        const fetchClubData = async () => {
-            setIsLoading(true);
-            try {
-                const data = await memberService.getMembers();
-                
-                // Filter members based on selected team or user's teams
-                const myTeamIds = teams.map(t => t.team_id);
-                
-                const filtered = data.filter(member => {
-                    // If member has no team usage defined, assume they might clear (or block? safe to block)
-                    if (!member.team_ids || member.team_ids.length === 0) return false;
+    const fetchClubData = useCallback(async () => {
+        setIsLoading(true);
+        try {
+            const data = await memberService.getMembers();
+            
+            // Filter members based on selected team or user's teams
+            const myTeamIds = teams.map(t => t.team_id);
+            
+            const filtered = data.filter(member => {
+                // If member has no team usage defined, do not show here
+                if (!member.team_ids || member.team_ids.length === 0) return false;
 
-                    if (selectedTeam) {
-                        // Specific team selected: Member must be in that team
-                        return member.team_ids.includes(selectedTeam.team_id);
-                    } else {
-                        // 'All' selected: Member must be in AT LEAST ONE of my teams
-                        return member.team_ids.some(tid => myTeamIds.includes(tid));
-                    }
-                });
+                if (selectedTeam) {
+                    // Specific team selected: Member must be in that team
+                    return member.team_ids.includes(selectedTeam.team_id);
+                } else {
+                    // 'All' selected: Member must be in AT LEAST ONE of my teams
+                    return member.team_ids.some(tid => myTeamIds.includes(tid));
+                }
+            });
 
-                setMembers(filtered);
-            } catch (error) {
-                console.error("Failed to load club members", error);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchClubData();
+            setMembers(filtered);
+        } catch (error) {
+            console.error("Failed to load club members", error);
+        } finally {
+            setIsLoading(false);
+        }
     }, [selectedTeam, teams]);
+
+    useEffect(() => {
+        fetchClubData();
+    }, [fetchClubData]);
 
     // Grouping
     const staff = members.filter(m => ['coach', 'admin', 'staff'].includes(m.role?.toLowerCase()));
@@ -85,10 +105,72 @@ const MyClub: React.FC = () => {
         }
     };
 
+    const handleInvite = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setInviteError(null);
+        setInviteMessage(null);
+        setAccessError(null);
+
+        if (!inviteEmail.trim() || !inviteFirstName.trim() || !inviteLastName.trim()) {
+            setInviteError('Email, prénom et nom sont requis.');
+            return;
+        }
+
+        if (!selectedTeam) {
+            setInviteError("Sélectionne une équipe avant d'inviter un membre.");
+            return;
+        }
+
+        setInviteLoading(true);
+        try {
+            const teamRole = inviteRole === 'COACH' ? 'COACH' : inviteRole === 'ADMIN' ? 'STAFF' : 'PLAYER';
+            const res = await memberService.inviteMember({
+                email: inviteEmail.trim(),
+                first_name: inviteFirstName.trim(),
+                last_name: inviteLastName.trim(),
+                role: inviteRole,
+                team_id: selectedTeam?.team_id,
+                team_role: teamRole,
+            });
+            setInviteMessage(res.message || 'Invitation envoyée.');
+            setInviteEmail('');
+            setInviteFirstName('');
+            setInviteLastName('');
+            await fetchClubData();
+        } catch (err) {
+            setInviteError(getErrorMessage(err));
+        } finally {
+            setInviteLoading(false);
+        }
+    };
+
+    const toggleMemberAccess = async () => {
+        if (!selectedMember) return;
+        setAccessError(null);
+        setInviteError(null);
+        setInviteMessage(null);
+
+        setAccessLoading(true);
+        try {
+            const updated = await memberService.updateMember(selectedMember.member_id, {
+                is_access_blocked: !selectedMember.is_access_blocked,
+            });
+            setSelectedMember(updated);
+            await fetchClubData();
+        } catch (err) {
+            setAccessError(getErrorMessage(err));
+        } finally {
+            setAccessLoading(false);
+        }
+    };
+
     const MemberCard = ({ member }: { member: MemberDTO }) => (
         <Card 
             variant="default" 
-            className="flex items-center gap-4 p-4 border-slate-100 hover:shadow-md transition-all cursor-pointer active:scale-95"
+            className={cn(
+                "flex items-center gap-4 p-4 border-slate-100 hover:shadow-md transition-all cursor-pointer active:scale-95",
+                member.is_access_blocked && "opacity-70"
+            )}
             onClick={() => handleMemberClick(member)}
         >
             <div className="relative">
@@ -115,6 +197,12 @@ const MyClub: React.FC = () => {
                 <p className="text-xs text-indigo-500 font-semibold uppercase tracking-wider mb-1">
                     {member.position || member.role || 'Membre'}
                 </p>
+
+                {member.is_access_blocked && (
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-red-600">
+                        Accès bloqué
+                    </div>
+                )}
                 
                 <div className="flex items-center gap-3">
                     {member.phone && (
@@ -173,6 +261,66 @@ const MyClub: React.FC = () => {
                 </div>
             </div>
 
+            {canManageMembers && activeTab === 'roster' && (
+                <Card className="p-5 mb-6 border-slate-100">
+                    <div className="flex items-center justify-between gap-4 mb-4">
+                        <div>
+                            <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider">Inviter un membre</h2>
+                            <p className="text-xs text-slate-500">
+                                {selectedTeam ? `Invitation dans l'équipe ${selectedTeam.name}` : "Sélectionne une équipe pour inviter un membre."}
+                            </p>
+                        </div>
+                    </div>
+
+                    <form onSubmit={handleInvite} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Input
+                            label="Email"
+                            type="email"
+                            value={inviteEmail}
+                            onChange={(e) => setInviteEmail(e.target.value)}
+                            placeholder="membre@exemple.com"
+                        />
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-slate-700 ml-1">Rôle</label>
+                            <select
+                                value={inviteRole}
+                                onChange={(e) => setInviteRole(e.target.value as any)}
+                                className={cn(
+                                    "flex h-12 w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-2 text-sm font-medium transition-all",
+                                    "focus-visible:outline-none focus-visible:border-indigo-500 focus-visible:bg-white focus-visible:ring-4 focus-visible:ring-indigo-500/10"
+                                )}
+                            >
+                                <option value="MEMBER">Membre</option>
+                                <option value="COACH">Coach</option>
+                                <option value="ADMIN">Admin</option>
+                            </select>
+                        </div>
+                        <Input
+                            label="Prénom"
+                            value={inviteFirstName}
+                            onChange={(e) => setInviteFirstName(e.target.value)}
+                            placeholder="Prénom"
+                        />
+                        <Input
+                            label="Nom"
+                            value={inviteLastName}
+                            onChange={(e) => setInviteLastName(e.target.value)}
+                            placeholder="Nom"
+                        />
+
+                        <div className="md:col-span-2 flex items-center justify-between gap-4">
+                            <div className="text-xs">
+                                {inviteError && <div className="font-bold text-red-600">{inviteError}</div>}
+                                {inviteMessage && <div className="font-bold text-emerald-600">{inviteMessage}</div>}
+                            </div>
+                            <Button type="submit" variant="primary" isLoading={inviteLoading}>
+                                Inviter
+                            </Button>
+                        </div>
+                    </form>
+                </Card>
+            )}
+
              {/* Modal Details */}
              <Modal 
                 isOpen={!!selectedMember} 
@@ -218,6 +366,24 @@ const MyClub: React.FC = () => {
                                 </a>
                             )}
                         </div>
+
+                        {canManageMembers && (
+                            <div className="space-y-2">
+                                <div className="flex justify-center">
+                                    <Button
+                                        type="button"
+                                        variant={selectedMember.is_access_blocked ? 'secondary' : 'danger'}
+                                        isLoading={accessLoading}
+                                        onClick={toggleMemberAccess}
+                                    >
+                                        {selectedMember.is_access_blocked ? "Débloquer l'accès" : "Bloquer l'accès"}
+                                    </Button>
+                                </div>
+                                {accessError && (
+                                    <div className="text-center text-xs font-bold text-red-600">{accessError}</div>
+                                )}
+                            </div>
+                        )}
 
                         {/* Stats Section */}
                         {statsLoading ? (
